@@ -30,7 +30,7 @@ Wymagania
 Instalacja i Uruchomienie
 -------------------------
 1. Sklonuj repozytorium:
-   git clone https://github.com/twoj-login/tic-tac-toe-chat.git
+   git clone [(https://github.com/Sue0779/Tic-Tac-Toe).git]
 2. Przejdź do katalogu projektu i zainstaluj zależności:
    cd tic-tac-toe-chat
    npm install
