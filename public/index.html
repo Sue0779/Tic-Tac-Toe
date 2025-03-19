@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <title>Tic Tac Toe</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <style>
+    body {
+      margin:0; padding:0;
+      text-align:center;
+      background:#fff;
+      font-family:Arial,sans-serif;
+    }
+    h1 {
+      margin-top:20px;
+      margin-bottom:10px;
+    }
+    #info {
+      font-weight:bold;
+      margin-bottom:10px;
+    }
+    #gameCanvas {
+      display:block;
+      margin: 0 auto;
+      background:#fff;
+      border:none;
+    }
+    #buttons {
+      margin:10px;
+    }
+    #chatContainer {
+      margin:20px auto;
+      width:420px;
+      background:#f2f2f2;
+      border:1px solid #aaa;
+      padding:10px;
+      box-sizing:border-box;
+      text-align:left;
+    }
+    #chatLog {
+      width:100%;
+      height:150px;
+      border:1px solid #ccc;
+      overflow-y:auto;
+      margin-bottom:5px;
+      padding:5px;
+      box-sizing:border-box;
+    }
+    #chatMsg {
+      width:80%;
+      box-sizing:border-box;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tic Tac Toe</h1>
+  <div id="info">Łączenie z serwerem...</div>
+
+  <canvas id="gameCanvas" width="400" height="400"></canvas>
+  <div id="buttons">
+    <button onclick="sendCheck()">Sprawdzam</button>
+  </div>
+
+  <div id="chatContainer">
+    <div id="chatLog"></div>
+    <input type="text" id="chatMsg">
+    <button id="chatSendBtn">Wyślij</button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let socket;
+    let board = Array(9).fill(null);
+    let currentPlayer = "X";
+    let winner = "";
+    let winningLine = null;
+    let mySymbol = "viewer";
+
+    const infoEl = document.getElementById("info");
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const chatLog = document.getElementById("chatLog");
+    const chatMsg = document.getElementById("chatMsg");
+    const chatSendBtn = document.getElementById("chatSendBtn");
+
+    function drawBoard() {
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, 400, 400);
+
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 4;
+      // linie pionowe
+      ctx.beginPath();
+      ctx.moveTo(133, 0); ctx.lineTo(133, 400);
+      ctx.moveTo(266, 0); ctx.lineTo(266, 400);
+      ctx.stroke();
+      // linie poziome
+      ctx.beginPath();
+      ctx.moveTo(0, 133); ctx.lineTo(400, 133);
+      ctx.moveTo(0, 266); ctx.lineTo(400, 266);
+      ctx.stroke();
+
+      for (let i = 0; i < 9; i++) {
+        if (board[i] === null) continue;
+        let row = Math.floor(i / 3), col = i % 3;
+        let x = col * 133, y = row * 133;
+        if (board[i] === "X") drawX(x, y, 133, 133);
+        else if (board[i] === "O") drawO(x, y, 133, 133);
+      }
+
+      if ((winner === "X" || winner === "O") && winningLine) {
+        drawWinningLine(winningLine);
+      }
+    }
+
+    function drawX(x, y, w, h) {
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 5;
+      let off = w * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(x + off, y + off);
+      ctx.lineTo(x + w - off, y + h - off);
+      ctx.moveTo(x + off, y + h - off);
+      ctx.lineTo(x + w - off, y + off);
+      ctx.stroke();
+    }
+
+    function drawO(x, y, w, h) {
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 5;
+      let off = Math.min(w, h) * 0.2;
+      ctx.beginPath();
+      ctx.arc(x + w / 2, y + h / 2, (w / 2) - off, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+
+    function drawWinningLine(lineArr) {
+      let first = lineArr[0], last = lineArr[2];
+      let { cx: fx, cy: fy } = getCenter(first);
+      let { cx: lx, cy: ly } = getCenter(last);
+
+      let dx = lx - fx, dy = ly - fy;
+      let dist = Math.sqrt(dx * dx + dy * dy);
+      let ux = dx / dist, uy = dy / dist;
+      let offset = 20;
+      fx -= ux * offset; fy -= uy * offset;
+      lx += ux * offset; ly += uy * offset;
+
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(lx, ly);
+      ctx.stroke();
+    }
+
+    function getCenter(i) {
+      let row = Math.floor(i / 3), col = i % 3;
+      return { cx: col * 133 + 66.5, cy: row * 133 + 66.5 };
+    }
+
+    canvas.addEventListener("click", (evt) => {
+      if (winner === "X" || winner === "O" || winner === "R") return;
+      if (mySymbol !== currentPlayer) {
+        // ruch wykonywany poza turą – serwer to zweryfikuje
+      }
+
+      let rect = canvas.getBoundingClientRect();
+      let mx = evt.clientX - rect.left;
+      let my = evt.clientY - rect.top;
+      let col = Math.floor(mx / 133);
+      let row = Math.floor(my / 133);
+      let idx = row * 3 + col;
+      socket.emit("move", idx);
+    });
+
+    function sendCheck() {
+      socket.emit("check");
+    }
+
+    // Chat
+    chatMsg.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+    chatSendBtn.addEventListener("click", () => sendChat());
+    function sendChat() {
+      let txt = chatMsg.value.trim();
+      if (!txt) return;
+      socket.emit("chat", txt);
+      chatMsg.value = "";
+    }
+
+    function updateInfo() {
+      if (winner === "R") {
+        infoEl.textContent = "REMIS! (reset za 0.5s)";
+      } else if (winner === "X" || winner === "O") {
+        infoEl.textContent = `Wygrywa: ${winner} (reset za 3s)`;
+      } else {
+        infoEl.textContent = `Tura: ${currentPlayer} | Ty: ${mySymbol}`;
+      }
+    }
+
+    function sendReset() {
+      socket.emit("reset");
+    }
+
+    window.onload = () => {
+      socket = io();
+
+      socket.on("connect", () => console.log("connect"));
+      socket.on("disconnect", () => console.log("disconnect"));
+
+      // Otrzymanie symbolu od serwera
+      socket.on("youAre", (sym) => {
+        mySymbol = sym;
+        console.log("Mój symbol:", mySymbol);
+      });
+
+      // Aktualizacja stanu gry
+      socket.on("gameState", (st) => {
+        board = st.board;
+        currentPlayer = st.currentPlayer;
+        winner = "";
+        winningLine = null;
+        drawBoard();
+        updateInfo();
+      });
+
+      // Wynik rundy
+      socket.on("checkedResult", (st) => {
+        board = st.board;
+        currentPlayer = st.currentPlayer;
+        winner = st.winner;
+        winningLine = st.winningLine;
+        drawBoard();
+        updateInfo();
+        if (winner === "X" || winner === "O") {
+          setTimeout(() => sendReset(), 3000);
+        } else if (winner === "R") {
+          setTimeout(() => sendReset(), 500);
+        }
+      });
+
+      // Odbieranie wiadomości czatu – jeżeli symbol jest pusty, nie dodajemy prefiksu
+      socket.on("chat", (data) => {
+        let div = document.createElement("div");
+        let prefix = data.symbol ? data.symbol + ": " : "";
+        div.textContent = prefix + data.text;
+        chatLog.appendChild(div);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      });
+    };
+  </script>
+</body>
+</html>
